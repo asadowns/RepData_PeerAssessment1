@@ -1,25 +1,129 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Reproducible Research Peer Assignment One"
 ---
 
+## Introduction
 
-## Loading and preprocessing the data
+It is now possible to collect a large amount of data about personal movement using activity monitoring devices such as a Fitbit, Nike Fuelband, or Jawbone Up. These type of devices are part of the “quantified self” movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. But these data remain under-utilized both because the raw data are hard to obtain and there is a lack of statistical methods and software for processing and interpreting the data.
 
+This analysis makes use of data from a personal activity monitoring device. This device collects data at 5 minute intervals through out the day. The data consists of two months of data from an anonymous individual collected during the months of October and November, 2012 and include the number of steps taken in 5 minute intervals each day.
 
+* steps: Number of steps taking in a 5-minute interval (missing values are coded as NA)
+* date: The date on which the measurement was taken in YYYY-MM-DD format
+* interval: Identifier for the 5-minute interval in which measurement was taken
 
-## What is mean total number of steps taken per day?
+The dataset is stored in a comma-separated-value (CSV) file and there are a total of 17,568 observations in this dataset.
 
+The first step in our report was to get the data. We also formatted the dates using the lubridate package and specify our other library dependencies.
 
+## Setup, Loading and Preprocessing the Data
 
-## What is the average daily activity pattern?
+```{r setup, echo=TRUE, results='hide', message=FALSE}
+library('dplyr')
+library('lubridate')
+library('ggplot2')
+library('lattice')
+library('knitr')
+opts_chunk$set(echo=TRUE, results='hide', fig.path='figure/')
 
+if (!file.exists('activity_data.zip')) {
+  download.file('https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip','activity_data.zip',method='curl')
+  downloadDate <- date()  
+} else {
+  downloadDate <- format(file.info('activity.csv')$mtime, "%a %b %d %H:%M:%S %Y")
+}
 
+if (!file.exists('activity.csv')) {
+  unzip('activity_data.zip')
+}
 
-## Imputing missing values
+raw <- read.csv('activity.csv', na.strings='NA')
 
+format <- tbl_df(raw) %>%
+  mutate(date = ymd(date))
+```
 
+The data used in this analysis was downloaded on **`r downloadDate`**.
 
-## Are there differences in activity patterns between weekdays and weekends?
+##Total Number of Steps Taken Per Day
+
+We first analyzed the total number of steps taken by the individual on each day. The results are plotted on the histogram below. We also calculated the mean and median of the total number of steps per day. These are provided below. Missing values were excluded from this part of the analysis.
+
+```{r calculateTotalStepsPerDay}
+stepsPerDay <- na.omit(format) %>%
+  group_by(date) %>%
+  summarise(steps = sum(steps))
+
+meanStepsPerDay <- mean(stepsPerDay$steps)
+medianStepsPerDay <- median(stepsPerDay$steps)
+
+ggplot(stepsPerDay, aes(date)) + geom_histogram(stat='identity',aes(y=steps)) + xlab('Day') + ylab('Total Steps') + ggtitle('Total Number of Steps Per Day')
+```
+
+The mean of the total steps per day was **`r as.integer(meanStepsPerDay)`** and the median of the total steps per day was **`r medianStepsPerDay`**.
+
+##Average Daily Activity Pattern
+
+We next wanted to analyze the individual's average steps per day over the course of 5-minute intervals across all the days in the sample. The results are plotted on the below time series plot.
+
+```{r averageStepsPerInterval}
+meanStepsPerInterval <- na.omit(format) %>%
+  group_by(interval) %>%
+  summarise(steps = mean(steps))
+
+intervalMaxSteps <- meanStepsPerInterval$interval[which.max(meanStepsPerInterval$steps)]
+
+with(meanStepsPerInterval, {plot(interval, steps, type="l", xaxt='n')
+                        axis(side=1, at=seq(from = 0, to = 2420, by = 60))
+                        })
+```
+
+The 5-minute interval, on average across all the days in the dataset, which contains the maximum number of steps is the **`r intervalMaxSteps`** interval.
+
+##Imputing Missing Values
+
+The next step in our analysis was to examine the missing values in the data and impute replacement values. Missing values can introduce bias into some calculations or summaries of the data. Missing values in the dataset were coded as *NA*.  
+
+```{r missingValues}
+numMissingValues <- sum(is.na(format))
+
+replaceNa <- which(is.na(format$steps),arr.ind=TRUE)
+
+naList <- format
+
+for (i in 1:length(replaceNa)) {
+  naList$steps[replaceNa[i]] <- meanStepsPerInterval$steps[meanStepsPerInterval$interval==naList$interval[replaceNa[i]]]
+}
+
+stepsPerDayNa <- naList %>%
+  group_by(date) %>%
+  summarise(steps = sum(steps))
+
+meanStepsPerDayNa <- mean(stepsPerDayNa$steps)
+medianStepsPerDayNa <- median(stepsPerDayNa$steps)
+
+```
+
+There were **`r numMissingValues`** missing values in the dataset. Our strategy to replace the missing values was to use the mean of the 5-minute interval across all days to code for any missing values in the 5-minute interval with missing data. We created a new data set using this strategy. 
+
+We made a histogram of the total number of steps taken each day and calculated the mean and median total number of steps taken per day. 
+```{r plotWithNaFill}
+ggplot(stepsPerDayNa, aes(date)) + geom_histogram(stat='identity',aes(y=steps)) + xlab('Day') + ylab('Total Steps') + ggtitle('Number of steps per day')
+```
+As expected since we replaced the missing data with the mean number of steps taken in that 5 minute interval there was very little impact on the mean and median total number of steps taken per day. The mean total steps per day was **`r as.integer(meanStepsPerDayNa)`** and the median total steps per day was **`r as.integer(medianStepsPerDayNa)`**
+
+There was a very strong impact on the total number of steps taken each day as some days were missing all values from that day. With the strategy we took these blank days were replaced by "average" days.
+
+##Weekdays vs. Weekends
+Our final analysis was to look at differences in activity patterns between weekdays and weekends. We used the dataset with the filled in missing data for this analysis. We made a panel plot of the results of this analysis.
+```{r weekdayWeekend}
+weekDay <- naList %>%
+  mutate(weekday = ifelse(weekdays(date) == 'Saturday' | weekdays(date) == 'Sunday','weekend','weekday')) %>%
+  group_by(weekday, interval) %>%
+  summarise(steps = mean(steps))
+
+par(mfrow=c(2,1))
+with(weekDay, {plot(interval[weekday=='weekend'], steps[weekday=='weekend'], type="l", col='blue', main='weekend', xlab='interval',ylab='Average Steps',ylim=c(0,250))
+               plot(interval[weekday=='weekend'],steps[weekday=='weekday'], type="l", col='red', main='weekday', xlab='interval',ylab='Average Steps',ylim=c(0,250))
+     })
+```
